@@ -4,11 +4,6 @@ import { Button, Card, Modal } from "@mui/material";
 import { Pool } from "@/types";
 import { useMainContext } from "@/hooks";
 import { getWalletHumanBalance } from "@/utils";
-import { useAccount, useWriteContract } from "wagmi";
-import PoolAbi from "@/constants/abis/Pool.json";
-import WrapperAbi from "@/constants/abis/Wrapper.json";
-import ERC20Abi from "@/constants/abis/FaucetERC20.json";
-import { POOL_ADDRESS, WRAPPER_ADDRESS } from "@/constants";
 import { formatUnits, parseUnits } from "ethers";
 
 type Props = {
@@ -28,18 +23,36 @@ export const ActionModal = ({
   changeIsWrap,
   handleClose,
 }: Props) => {
-  const { isConnected, address } = useAccount();
-  const { balances, epochInfo, approveToken, wrap, decryptEuint256 } =
-    useMainContext();
+  const {
+    balances,
+    epochInfo,
+    redeemableInfo,
+    approveToken,
+    wrapRequest,
+    redeem,
+    decryptEuint256,
+  } = useMainContext();
 
+  const [amount, setAmount] = useState("");
   const [pendingAmount, setPendingAmount] = useState<string>();
+  const [decryptedValues, setDecryptedVaules] = useState<
+    Record<string, string>
+  >({});
+
   const encryptedPendingAmount = useMemo(() => {
+    setPendingAmount(undefined);
     const token = isDeposit ? pool.asset.address : pool.address;
 
     return epochInfo[token.toLowerCase()]
       ? epochInfo[token.toLowerCase()].pendingUserRequest
       : undefined;
   }, [epochInfo, isDeposit, pool]);
+
+  const encryptedRedeemableAmount = useMemo(() => {
+    const token = isDeposit ? pool.asset.address : pool.address;
+
+    return redeemableInfo[token.toLowerCase()];
+  }, [redeemableInfo, isDeposit, pool]);
 
   const revealPendingAmount = useCallback(async () => {
     if (encryptedPendingAmount === undefined || encryptedPendingAmount === 0n) {
@@ -51,6 +64,20 @@ export const ActionModal = ({
       setPendingAmount(formatUnits(_amount, pool.asset.decimals));
     }
   }, [encryptedPendingAmount, pool, decryptEuint256]);
+
+  const revealAmount = useCallback(
+    async (value: bigint) => {
+      const _amount = await decryptEuint256(value);
+
+      if (_amount !== undefined) {
+        const _values: Record<string, string> = { ...decryptedValues };
+        _values[value.toString()] = formatUnits(_amount, pool.asset.decimals);
+        setDecryptedVaules(_values);
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [pool, decryptEuint256]
+  );
 
   useEffect(() => {
     setPendingAmount(undefined);
@@ -91,37 +118,94 @@ export const ActionModal = ({
     revealPendingAmount,
   ]);
 
-  const [amount, setAmount] = useState("");
-  const { writeContractAsync } = useWriteContract();
-
-  const withdraw = () => {
-    if (isConnected && address) {
-      writeContractAsync({
-        abi: PoolAbi,
-        address: POOL_ADDRESS,
-        functionName: "withdraw",
-        args: [
-          pool.asset.address,
-          parseUnits(amount, pool.asset.decimals),
-          address,
-        ],
-      });
+  const getRedeemableAmountElement = useCallback(() => {
+    if (encryptedRedeemableAmount === undefined) {
+      return <span></span>;
+    } else if (encryptedRedeemableAmount.amounts.length === 0) {
+      return <span>Nothing available to redeem</span>;
+    } else {
+      if (pendingAmount === undefined) {
+        return (
+          <div className="flex flex-col">
+            <span className="text-lg">
+              You have redeemable amount at the following epoches:
+            </span>
+            {encryptedRedeemableAmount.epoch.map((epoch, idx) =>
+              decryptedValues[
+                encryptedRedeemableAmount.amounts[idx].toString()
+              ] ? (
+                <span key={`redeemable-epoch-${epoch}`} className="mb-2 ml-2">
+                  You have $
+                  {
+                    decryptedValues[
+                      encryptedRedeemableAmount.amounts[idx].toString()
+                    ]
+                  }
+                  {isDeposit ? pool.symbol : pool.asset.symbol} redeemable at #
+                  {epoch}.{" "}
+                  <button
+                    className="underline cursor-pointer"
+                    onClick={() => redeem(pool, epoch, isDeposit)}
+                  >
+                    Click to redeem.
+                  </button>
+                </span>
+              ) : (
+                <span key={`redeemable-epoch-${epoch}`} className="mb-2 ml-2">
+                  You have something at #{epoch}.{" "}
+                  <button
+                    className="underline cursor-pointer"
+                    onClick={() =>
+                      revealAmount(encryptedRedeemableAmount.amounts[idx])
+                    }
+                  >
+                    Reveal it
+                  </button>{" "}
+                  or just{" "}
+                  <button
+                    className="underline cursor-pointer"
+                    onClick={() => redeem(pool, epoch, isDeposit)}
+                  >
+                    Redeem
+                  </button>
+                  ?
+                </span>
+              )
+            )}
+          </div>
+        );
+      } else {
+        return (
+          <span className="mb-2">
+            Your pending amount: {pendingAmount}
+            {isDeposit ? pool.asset.symbol : pool.symbol}
+          </span>
+        );
+      }
     }
-  };
+  }, [
+    encryptedRedeemableAmount,
+    decryptedValues,
+    pendingAmount,
+    pool,
+    isDeposit,
+    redeem,
+    revealAmount,
+  ]);
 
   const sendWrapRequest = useCallback(async () => {
     const parsedAmount = parseUnits(amount, pool.asset.decimals);
     const res = await approveToken(pool, isDeposit, parsedAmount);
     if (res) {
-      await wrap(isDeposit, pool, parsedAmount);
+      await wrapRequest(isDeposit, pool, parsedAmount);
     }
-  }, [approveToken, wrap, pool, isDeposit, amount]);
+  }, [approveToken, wrapRequest, pool, isDeposit, amount]);
 
   return (
     <Modal
       open={open}
       onClose={handleClose}
-      className="flex items-center justify-center"
+      className="flex items-center justify-center min-h-160"
     >
       <Card className="bg-white flex flex-col w-120">
         <div className="flex w-full border-b">
@@ -143,18 +227,21 @@ export const ActionModal = ({
           </Button>
         </div>
         <div className="flex flex-col px-4 py-10 h-40">
-          {getPendingAmountElement()}
+          {isWrap ? getPendingAmountElement() : getRedeemableAmountElement()}
 
           {isWrap && (
             <>
               <div className="flex justify-between mt-2">
                 <span>
-                  Input {isWrap ? pool.asset.symbol : pool.symbol} amount to
+                  Input {isDeposit ? pool.asset.symbol : pool.symbol} amount to
                   send {isDeposit ? "deposit" : "withdraw"} request:
                 </span>
                 <button>
                   Max:{" "}
-                  {getWalletHumanBalance(balances, isWrap ? pool.asset : pool)}
+                  {getWalletHumanBalance(
+                    balances,
+                    isDeposit ? pool.asset : pool
+                  )}
                 </button>
               </div>
               <div className="flex border-1 rounded">
@@ -169,25 +256,15 @@ export const ActionModal = ({
             </>
           )}
         </div>
-        <div className="flex">
-          {isWrap ? (
-            <Button
-              className="flex-1 !rounded-none"
-              variant="contained"
-              onClick={sendWrapRequest}
-            >
-              {isDeposit ? "Deposit request" : "Withdrawal request"}
-            </Button>
-          ) : (
-            <Button
-              className="flex-1 !rounded-none"
-              variant="contained"
-              onClick={isWrap ? sendWrapRequest : withdraw}
-            >
-              Redeem request
-            </Button>
-          )}
-        </div>
+        {isWrap && (
+          <Button
+            className="flex-1 !rounded-none"
+            variant="contained"
+            onClick={sendWrapRequest}
+          >
+            {isDeposit ? "Deposit request" : "Withdrawal request"}
+          </Button>
+        )}
       </Card>
     </Modal>
   );

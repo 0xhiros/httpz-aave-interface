@@ -16,7 +16,7 @@ const CustomNotification = ({ data }: Props) => {
     <div className="flex flex-col w-full">
       <h3 className="text-sm font-semibold">{data.title}</h3>
       <div className="flex flex-col">
-        <p className="text-sm">{data.content}</p>
+        <p className="text-sm mb-2">{data.content}</p>
         {data.tx && (
           <div className="flex justify-end">
             <Button

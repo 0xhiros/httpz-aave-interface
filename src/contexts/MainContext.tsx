@@ -15,11 +15,18 @@ import {
   useSignTypedData,
   useSwitchChain,
 } from "wagmi";
-import { Asset, EpochInfo, Pool, WalletBalances } from "@/types";
+import {
+  Asset,
+  EpochInfo,
+  Pool,
+  RedeemableInfo,
+  WalletBalances,
+} from "@/types";
 import { BrowserProvider } from "ethers";
 import {
   getEpochInfo,
   getFaucetContract,
+  getRedeemableAmounts,
   getTokenBalances,
   getTokenContract,
   getTokens,
@@ -35,6 +42,7 @@ interface IMainContext {
   fhEVMInstance?: FhevmInstance;
   balances: WalletBalances;
   epochInfo: EpochInfo;
+  redeemableInfo: RedeemableInfo;
   decryptEuint256: (value: bigint) => void;
   updateBalances: () => void;
   updateEpochInfo: () => void;
@@ -44,12 +52,15 @@ interface IMainContext {
     isDeposit: boolean,
     amount: bigint
   ) => Promise<boolean>;
-  wrap: (isDeposit: boolean, pool: Pool, amount: bigint) => void;
+  wrapRequest: (isDeposit: boolean, pool: Pool, amount: bigint) => void;
+  wrap: (pool: Pool, isDeposit: boolean) => void;
+  redeem: (pool: Pool, epoch: number, isDeposit: boolean) => void;
 }
 
 export const MainContext = createContext<IMainContext>({
   balances: {},
   epochInfo: {},
+  redeemableInfo: {},
   decryptEuint256: () => {},
   updateBalances: () => {},
   updateEpochInfo: () => {},
@@ -57,7 +68,9 @@ export const MainContext = createContext<IMainContext>({
   approveToken: async () => {
     return true;
   },
+  wrapRequest: () => {},
   wrap: () => {},
+  redeem: () => {},
 });
 
 const MainProvider = ({ children }: PropsWithChildren) => {
@@ -70,13 +83,9 @@ const MainProvider = ({ children }: PropsWithChildren) => {
   const [fhEVMInstance, setFVMInstance] = useState<FhevmInstance>();
   const [balances, setBalances] = useState<WalletBalances>({});
   const [epochInfo, setEpochInfo] = useState<EpochInfo>({});
+  const [redeemableInfo, setRedeemableInfo] = useState<RedeemableInfo>({});
   const [fvmInitialized, setFvmInitialized] = useState(false);
-
-  useEffect(() => {
-    if (chainId !== sepolia.id) {
-      switchChain({ chainId: sepolia.id });
-    }
-  }, [chainId, switchChain]);
+  const [reloadInterval, setReloadInterval] = useState<any>();
 
   const provider = useMemo(() => {
     if (connectorClient) {
@@ -84,6 +93,12 @@ const MainProvider = ({ children }: PropsWithChildren) => {
     }
     return undefined;
   }, [connectorClient]);
+
+  useEffect(() => {
+    if (chainId !== sepolia.id) {
+      switchChain({ chainId: sepolia.id });
+    }
+  }, [chainId, switchChain]);
 
   const initFhevmInstance = useCallback(async () => {
     try {
@@ -149,14 +164,6 @@ const MainProvider = ({ children }: PropsWithChildren) => {
     }
   }, [fvmInitialized, fhEVMInstance]);
 
-  useEffect(() => {
-    initFhevmInstance();
-  }, [initFhevmInstance]);
-
-  useEffect(() => {
-    createFhevmIntance();
-  }, [createFhevmIntance]);
-
   const updateBalances = useCallback(
     async () => {
       try {
@@ -178,31 +185,43 @@ const MainProvider = ({ children }: PropsWithChildren) => {
     [provider, address]
   );
 
-  const updateEpochInfo = useCallback(
-    async () => {
-      try {
-        if (provider) {
-          const res = await getEpochInfo(provider, address ?? ZeroAddress);
-          const tokens = getTokens();
-          const epoch = { ...epochInfo };
-          for (let i = 0; i < tokens.length; i += 1) {
-            epoch[tokens[i].toString()] = {
-              currentEpoch: Number(res[0][i]),
-              lastWrappedTime: Number(res[1][i]),
-              hasRequest: res[2][i],
-              pendingUserRequest: res[3][i],
-            };
-          }
-
-          setEpochInfo(epoch);
+  const updateEpochInfo = useCallback(async () => {
+    try {
+      if (provider) {
+        const res = await getEpochInfo(provider, address ?? ZeroAddress);
+        const tokens = getTokens();
+        const epoch: EpochInfo = {};
+        for (let i = 0; i < tokens.length; i += 1) {
+          epoch[tokens[i].toString()] = {
+            currentEpoch: Number(res[0][i]),
+            lastWrappedTime: Number(res[1][i]),
+            hasRequest: res[2][i],
+            pendingUserRequest: res[3][i],
+          };
         }
-      } catch (err) {
-        console.error(err);
+
+        setEpochInfo(epoch);
       }
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [provider, address]
-  );
+    } catch (err) {
+      console.error(err);
+    }
+  }, [provider, address]);
+
+  const updateRedeemableAmounts = useCallback(async () => {
+    try {
+      if (provider && address) {
+        const res = await getRedeemableAmounts(
+          provider,
+          getTokens(),
+          epochInfo,
+          address
+        );
+        setRedeemableInfo(res);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  }, [provider, address, epochInfo]);
 
   const getFreeToken = useCallback(
     async (asset: Asset) => {
@@ -345,7 +364,7 @@ const MainProvider = ({ children }: PropsWithChildren) => {
     [provider, address]
   );
 
-  const wrap = useCallback(
+  const wrapRequest = useCallback(
     async (isDeposit: boolean, pool: Pool, amount: bigint) => {
       let toastId: ToastId | undefined = undefined;
       if (provider) {
@@ -383,6 +402,7 @@ const MainProvider = ({ children }: PropsWithChildren) => {
               } ${formatUnits(amount, pool.asset.decimals)}${
                 isDeposit ? pool.asset.symbol : pool.symbol
               }.`,
+              tx: tx.hash,
             },
           });
 
@@ -423,6 +443,152 @@ const MainProvider = ({ children }: PropsWithChildren) => {
     [provider, updateEpochInfo, updateBalances]
   );
 
+  const wrap = useCallback(
+    async (pool: Pool, isDeposit: boolean) => {
+      let toastId: ToastId | undefined = undefined;
+      if (provider) {
+        try {
+          const signer = await provider.getSigner();
+          const contract = getWrapperContract(signer);
+
+          toastId = toast(CustomNotification, {
+            data: {
+              title: `${isDeposit ? "Depositing" : "Withdrawing"} assets ${
+                isDeposit ? "to" : "from"
+              } Aave`,
+              content: `${
+                isDeposit ? "Depositing" : "Withdrawing"
+              } wrapped assets ${isDeposit ? "to" : "from"} Aave`,
+            },
+            isLoading: true,
+          });
+
+          const tx = await contract.wrap(pool.asset.address, isDeposit);
+
+          toast.update(toastId, {
+            data: {
+              title: `${isDeposit ? "Depositing" : "Withdrawing"} assets ${
+                isDeposit ? "to" : "from"
+              } Aave`,
+              content: `${
+                isDeposit ? "Depositing" : "Withdrawing"
+              } wrapped assets ${isDeposit ? "to" : "from"} Aave`,
+              tx: tx.hash,
+            },
+          });
+
+          await tx.wait(1);
+
+          toast.update(toastId, {
+            isLoading: false,
+            type: "success",
+            autoClose: 5000,
+          });
+        } catch (err) {
+          console.error(err);
+          if (toastId) {
+            toast.update(toastId, {
+              data: {
+                title: "Failed to wrap!",
+                content: `There was an unexpected error to wrap!`,
+              },
+              type: "error",
+              autoClose: 5000,
+              isLoading: false,
+            });
+          } else {
+            toast(CustomNotification, {
+              data: {
+                title: "Failed to wrap!",
+                content: `There was an unexpected error to wrap!`,
+              },
+              type: "error",
+              autoClose: 5000,
+            });
+          }
+        }
+      }
+    },
+    [provider, updateEpochInfo, updateBalances]
+  );
+
+  const redeem = useCallback(
+    async (pool: Pool, epoch: number, isDeposit: boolean) => {
+      let toastId: ToastId | undefined = undefined;
+      if (provider) {
+        try {
+          const signer = await provider.getSigner();
+          const contract = getWrapperContract(signer);
+
+          toastId = toast(CustomNotification, {
+            data: {
+              title: `Redeeming ${isDeposit ? pool.symbol : pool.asset.symbol}`,
+              content: `Redeeming ${
+                isDeposit ? pool.symbol : pool.asset.symbol
+              } at epoch #${epoch}`,
+            },
+            isLoading: true,
+          });
+
+          const tx = await contract.redeem(
+            pool.asset.address,
+            epoch,
+            isDeposit
+          );
+
+          toast.update(toastId, {
+            data: {
+              title: `Redeeming ${isDeposit ? pool.symbol : pool.asset.symbol}`,
+              content: `Redeeming ${
+                isDeposit ? pool.symbol : pool.asset.symbol
+              } at epoch #${epoch}`,
+              tx: tx.hash,
+            },
+          });
+
+          await tx.wait(1);
+
+          toast.update(toastId, {
+            isLoading: false,
+            type: "success",
+            autoClose: 5000,
+          });
+        } catch (err) {
+          console.error(err);
+          if (toastId) {
+            toast.update(toastId, {
+              data: {
+                title: "Failed to redeem!",
+                content: `There was an unexpected error to redeem!`,
+              },
+              type: "error",
+              autoClose: 5000,
+              isLoading: false,
+            });
+          } else {
+            toast(CustomNotification, {
+              data: {
+                title: "Failed to redeem!",
+                content: `There was an unexpected error to redeem!`,
+              },
+              type: "error",
+              autoClose: 5000,
+            });
+          }
+        }
+      }
+    },
+    [provider, updateRedeemableAmounts, updateBalances]
+  );
+
+  // useEffect(() => {
+  //   initFhevmInstance();
+  // }, [initFhevmInstance]);
+
+  // useEffect(() => {
+  //   createFhevmIntance();
+  // }, [createFhevmIntance]);
+
   useEffect(() => {
     updateBalances();
   }, [updateBalances]);
@@ -430,6 +596,24 @@ const MainProvider = ({ children }: PropsWithChildren) => {
   useEffect(() => {
     updateEpochInfo();
   }, [updateEpochInfo]);
+
+  useEffect(() => {
+    updateRedeemableAmounts();
+  }, [updateRedeemableAmounts]);
+
+  useEffect(() => {
+    if (reloadInterval) {
+      clearInterval(reloadInterval);
+    }
+    const _interval = setInterval(() => {
+      updateBalances();
+      updateEpochInfo();
+      updateRedeemableAmounts();
+    }, 10000);
+
+    setReloadInterval(_interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [updateBalances, updateEpochInfo, updateRedeemableAmounts]);
 
   const decryptEuint256 = useCallback(
     async (value: bigint): Promise<bigint | undefined> => {
@@ -512,12 +696,15 @@ const MainProvider = ({ children }: PropsWithChildren) => {
         fhEVMInstance,
         balances,
         epochInfo,
+        redeemableInfo,
         decryptEuint256,
         updateBalances,
         updateEpochInfo,
         getFreeToken,
         approveToken,
+        wrapRequest,
         wrap,
+        redeem,
       }}
     >
       {children}

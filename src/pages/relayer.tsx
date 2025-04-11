@@ -7,10 +7,11 @@ import moment from "moment";
 import { useMainContext } from "@/hooks";
 import { Pool } from "@/types";
 import { useAccount } from "wagmi";
+import { ConnectKitButton } from "connectkit";
 
 const Relayer: NextPage = () => {
-  const { epochInfo, wrap } = useMainContext();
   const { isConnected } = useAccount();
+  const { epochInfo, wrap } = useMainContext();
 
   const getCurrentEpoch = useCallback(
     (pool: Pool, isDeposit: boolean) => {
@@ -36,16 +37,18 @@ const Relayer: NextPage = () => {
             <span>
               {moment.unix(lastWrappedTime + MIN_WRAP_THRESHOLD).format("llll")}
             </span>
-          ) : (
+          ) : isConnected ? (
             <Button
               variant="contained"
               disabled={
                 lastWrappedTime + MIN_WRAP_THRESHOLD > Date.now() / 1000
               }
-              onClick={() => wrap(isDeposit, pool.asset.address)}
+              onClick={() => wrap(pool, isDeposit)}
             >
               {isDeposit ? "Deposit to Aave" : "Withdraw from Aave"}
             </Button>
+          ) : (
+            <ConnectKitButton />
           );
         } else {
           return <span>No requests</span>;

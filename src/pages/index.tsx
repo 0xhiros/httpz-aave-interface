@@ -6,9 +6,12 @@ import { aDAI, pools } from "@/constants";
 import { ActionModal } from "@/components/ActionModal";
 import { useState } from "react";
 import { useMainContext } from "@/hooks";
+import { useAccount } from "wagmi";
+import { ConnectKitButton } from "connectkit";
 
 const Markets: NextPage = () => {
   const { balances } = useMainContext();
+  const { isConnected } = useAccount();
 
   const [isDeposit, setIsDeposit] = useState(true);
   const [isWrap, setIsWrap] = useState(true);
@@ -59,60 +62,72 @@ const Markets: NextPage = () => {
                   </div>
                 </td>
                 <td className="border border-gray-300">
-                  <div className="flex flex-col p-2 gap-2">
-                    <Button
-                      className="flex-1 w-40"
-                      variant="contained"
-                      onClick={() => {
-                        setPool(pool);
-                        setIsDeposit(true);
-                        setIsWrap(true);
-                        setShow(true);
-                      }}
-                    >
-                      Wrap request
-                    </Button>
-                    <Button
-                      className="flex-1"
-                      variant="contained"
-                      onClick={() => {
-                        setPool(pool);
-                        setIsDeposit(true);
-                        setIsWrap(false);
-                        setShow(true);
-                      }}
-                    >
-                      Redeem {pool.symbol}
-                    </Button>
-                  </div>
+                  {isConnected ? (
+                    <div className="flex flex-col p-2 gap-2">
+                      <Button
+                        className="flex-1 w-40"
+                        variant="contained"
+                        onClick={() => {
+                          setPool(pool);
+                          setIsDeposit(true);
+                          setIsWrap(true);
+                          setShow(true);
+                        }}
+                      >
+                        Wrap request
+                      </Button>
+                      <Button
+                        className="flex-1"
+                        variant="outlined"
+                        onClick={() => {
+                          setPool(pool);
+                          setIsDeposit(true);
+                          setIsWrap(false);
+                          setShow(true);
+                        }}
+                      >
+                        Redeem {pool.symbol}
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col p-2 gap-2">
+                      <ConnectKitButton />
+                    </div>
+                  )}
                 </td>
                 <td className="border border-gray-300">
-                  <div className="flex flex-col p-2 gap-2">
-                    <Button
-                      className="flex-1 w-40"
-                      variant="contained"
-                      onClick={() => {
-                        setPool(pool);
-                        setIsDeposit(false);
-                        setIsWrap(true);
-                        setShow(true);
-                      }}
-                    >
-                      Wrap request
-                    </Button>
-                    <Button
-                      className="flex-1"
-                      variant="contained"
-                      onClick={() => {
-                        setPool(pool);
-                        setIsDeposit(false);
-                        setIsWrap(false);
-                        setShow(true);
-                      }}
-                    >
-                      Redeem {pool.asset.symbol}
-                    </Button>
-                  </div>
+                  {isConnected ? (
+                    <div className="flex flex-col p-2 gap-2">
+                      <Button
+                        className="flex-1 w-40"
+                        variant="contained"
+                        onClick={() => {
+                          setPool(pool);
+                          setIsDeposit(false);
+                          setIsWrap(true);
+                          setShow(true);
+                        }}
+                      >
+                        Wrap request
+                      </Button>
+                      <Button
+                        className="flex-1"
+                        variant="outlined"
+                        onClick={() => {
+                          setPool(pool);
+                          setIsDeposit(false);
+                          setIsWrap(false);
+                          setShow(true);
+                        }}
+                      >
+                        Redeem {pool.asset.symbol}
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col p-2 gap-2">
+                      <ConnectKitButton />
+                    </div>
+                  )}
                 </td>
               </tr>
             ))}

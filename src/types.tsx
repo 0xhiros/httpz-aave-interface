@@ -24,3 +24,11 @@ export type EpochInfo = Record<
     pendingUserRequest: bigint;
   }
 >;
+
+export type RedeemableInfo = Record<
+  string,
+  {
+    amounts: bigint[];
+    epoch: number[];
+  }
+>;

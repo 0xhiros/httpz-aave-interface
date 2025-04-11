@@ -100,7 +100,7 @@
         "type": "uint256"
       }
     ],
-    "name": "TokenWithdrawn",
+    "name": "TokenRedeemed",
     "type": "event"
   },
   {
@@ -191,7 +191,7 @@
         "type": "uint256"
       }
     ],
-    "name": "callbackWithdrawal",
+    "name": "callbackRedeem",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -466,7 +466,7 @@
         "type": "bool"
       }
     ],
-    "name": "withdrawToken",
+    "name": "redeem",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -479,7 +479,7 @@
         "type": "uint256"
       }
     ],
-    "name": "withdrawalRequests",
+    "name": "redeemRequests",
     "outputs": [
       {
         "internalType": "bool",
