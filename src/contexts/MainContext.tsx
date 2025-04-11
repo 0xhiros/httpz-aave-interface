@@ -581,13 +581,13 @@ const MainProvider = ({ children }: PropsWithChildren) => {
     [provider, updateRedeemableAmounts, updateBalances]
   );
 
-  // useEffect(() => {
-  //   initFhevmInstance();
-  // }, [initFhevmInstance]);
+  useEffect(() => {
+    initFhevmInstance();
+  }, [initFhevmInstance]);
 
-  // useEffect(() => {
-  //   createFhevmIntance();
-  // }, [createFhevmIntance]);
+  useEffect(() => {
+    createFhevmIntance();
+  }, [createFhevmIntance]);
 
   useEffect(() => {
     updateBalances();
@@ -609,7 +609,7 @@ const MainProvider = ({ children }: PropsWithChildren) => {
       updateBalances();
       updateEpochInfo();
       updateRedeemableAmounts();
-    }, 10000);
+    }, 5000);
 
     setReloadInterval(_interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
